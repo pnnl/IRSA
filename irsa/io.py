@@ -1,55 +1,277 @@
-import torch
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
+from collections import OrderedDict
+
 import numpy as np
+import torch
+from irsa.networks import PairedNeuralNet
+from jcamp import JCAMP_reader
+from scipy.interpolate import interp1d
+from scipy.ndimage.filters import gaussian_filter1d
+from torch.utils.data import Dataset
 
 
-class InfraredDataset(Dataset):
-    '''
-    categories is the list of different alphabets (folders)
-    root_dir is the root directory leading to the alphabet files, could be /images_background or /images_evaluation
-    set_size is the size of the train set and the validation set combined
-    transform is any image transformations
-    '''
-    def __init__(self, categories, root_dir, set_size, transform=None):
-        self.categories = categories
-        self.root_dir = root_dir
-        self.transform = transform
-        self.set_size = set_size
+def load_model(path, model=PairedNeuralNet, **kwargs):
+    """
+    Load model from path.
+
+    Parameters
+    ----------
+    path : str
+        Path to saved model state dict.
+    model : :obj:`~torch.Module`
+        Model class to initialize.
+    kwargs
+        Keyword arguments for model initialization.
+
+    Returns
+    -------
+    :obj:`~torch.Module`
+        Initialized model.
+
+    """
+
+    m = model(**kwargs)
+    m.load_state_dict(torch.load(path))
+    return m
+
+
+def load_experimental(path):
+    """
+    Load experimental spectra from path using JCAMP.
+
+    Parameters
+    ----------
+    path : str
+        Path to DX file.
+
+    Returns
+    -------
+    freq : :obj:`~numpy.array`
+        Array of frequencies.
+    intensity : :obj:`~numpy.array`
+        Array of intensities.
+
+    """
+
+    # Load experimental spectra with JCAMP
+    spec = JCAMP_reader(path)
+
+    # Frequency
+    freq = spec['x']
+
+    # Intensity
+    intensity = spec['y']
+
+    # Normalize
+    intensity = (intensity - intensity.min()) / \
+        (intensity.max() - intensity.min())
+
+    return freq.astype(np.float32), (intensity / intensity.sum()).astype(np.float32)
+
+
+def load_predicted(path):
+    """
+    Load NWChem-predicted spectra from path using ISiCLE.
+
+    Parameters
+    ----------
+    path : str
+        Path to ISiCLE file.
+
+    Returns
+    -------
+    freq : :obj:`~numpy.array`
+        Array of frequencies.
+    intensity : :obj:`~numpy.array`
+        Array of intensities.
+
+    """
+
+    # Load predicted spectra
+    with open(path, 'rb') as f:
+        spec = pickle.load(f)
+
+    # Check for completion
+    if not hasattr(spec, 'frequency'):
+        raise ValueError('Frequency attribute not detected in input.')
+
+    # Frequency
+    freq = np.abs(spec.frequency['frequencies'])
+
+    # Intensity
+    intensity = np.abs(spec.frequency['intensity arbitrary'])
+
+    return freq.astype(np.float32), intensity.astype(np.float32)
+
+
+def preprocess_predicted(freq, intensity, exp_freq):
+    """
+    Process predicted spectra to broaden, normalize, and map to experimental
+    frequencies.
+
+    Parameters
+    ----------
+    freq : :obj:`~numpy.array`
+        Array of predicted frequencies.
+    intensity : :obj:`~numpy.array`
+        Array of predicted intensities.
+    freq : :obj:`~numpy.array`
+        Array of experimental frequencies.
+
+    Returns
+    -------
+    freq : :obj:`~numpy.array`
+        Array of experimental frequencies.
+    intensity : :obj:`~numpy.array`
+        Array of processed intensities at experimental frequencies.
+
+    """
+
+    # Index of intersecting frequencies
+    idx = (freq >= exp_freq.min()) & (freq <= exp_freq.max())
+
+    # Truncate
+    freq = freq[idx]
+    intensity = intensity[idx]
+
+    # Ensure both experimental and predicted points are sampled
+    freq = np.concatenate((freq, exp_freq))
+    intensity = np.concatenate((intensity, np.zeros_like(exp_freq)))
+
+    # Ensure monotonic frequencies
+    idx = np.argsort(freq)
+    freq = freq[idx]
+    intensity = intensity[idx]
+
+    # Apply naive broadening function
+    gauss = gaussian_filter1d(intensity, 1)
+
+    # Fit 1D spline to broadened spectra
+    spl = interp1d(freq, gauss, kind='linear',
+                   bounds_error=False, fill_value=0)
+
+    # Sample spline at same points as experimental
+    y_test = spl(exp_freq)
+
+    # Normalize
+    y_test = (y_test - y_test.min()) / (y_test.max() - y_test.min())
+
+    return exp_freq.copy().astype(np.float32), (y_test / y_test.sum()).astype(np.float32)
+
+
+class PairedExpPredDataset(Dataset):
+
+    def __init__(self, exp, exp_labels, pred, pred_labels, deterministic=False):
+        self.exp = torch.from_numpy(exp.astype(np.float32))
+        self.exp_labels = exp_labels
+        self.pred = torch.from_numpy(pred.astype(np.float32))
+        self.pred_labels = pred_labels
+        self.deterministic = deterministic
+
+        # Shape magic
+        if len(self.exp.shape) != len(self.pred.shape):
+            raise ValueError(
+                'Shape mismatch between predicted and experimental')
+
+        # (M, ) to (N, M) where N=1
+        if len(self.exp.shape) == 1:
+            self.exp = torch.unsqueeze(self.exp, 0)
+            self.pred = torch.unsqueeze(self.pred, 0)
+
+        # (N, M) to (N, K, M) where K=1
+        if len(self.exp.shape) == 2:
+            self.exp = torch.unsqueeze(self.exp, 1)
+            self.pred = torch.unsqueeze(self.pred, 1)
+
+        # Check if shape conversion successful
+        if len(self.exp.shape) != 3:
+            raise ValueError('Unable to coerce correct shape')
+
+        # Boolean pairwise comparison matrix
+        bmat = self.exp_labels[:, None] == self.pred_labels
+
+        # Indices of nonmatched pairs
+        self.neg_pairs = np.stack(np.where(bmat is False)).T
+
+        # Shuffle if determinisitic
+        if self.deterministic is True:
+            np.random.shuffle(self.neg_pairs)
+
+        # Indices of matched pairs
+        self.pos_pairs = np.stack(np.where(bmat is True)).T
+
+        # Labels
+        self.pos_label = torch.from_numpy(np.array([1.0], dtype=np.float32))
+        self.neg_label = torch.from_numpy(np.array([0.0], dtype=np.float32))
 
     def __len__(self):
-        return self.set_size
+        '''
+        Length will be twice the number of matching instances, as half will
+        be different by design.
+
+        '''
+
+        return 2 * self.pos_pairs.shape[0]
+
+    def _get_same(self, idx):
+        '''
+        Return same-labeled spectra, label=1.
+
+        '''
+
+        # Get matching pair indices
+        idx1, idx2 = self.pos_pairs[idx, :]
+
+        # Release instance
+        return OrderedDict([('exp_spec', self.exp[idx1]),
+                            ('exp_label', self.exp_labels[idx1]),
+                            ('pred_spec', self.pred[idx2]),
+                            ('pred_label', self.pred_labels[idx2]),
+                            ('label', self.pos_label)])
+
+    def _get_different(self):
+        '''
+        Return different experimental and predicted data, label=0. As this class
+        is larger, indices will be selected randomly.
+
+        '''
+
+        # Get non-matching pair indices
+        idx1, idx2 = self.neg_pairs[np.random.randint(
+            0, len(self.neg_pairs)), :]
+
+        # Release instance
+        return OrderedDict([('exp_spec', self.exp[idx1]),
+                            ('exp_label', self.exp_labels[idx1]),
+                            ('pred_spec', self.pred[idx2]),
+                            ('pred_label', self.pred_labels[idx2]),
+                            ('label', self.neg_label)])
+
+    def _get_different_deterministic(self, idx):
+        '''
+        Return same-labeled spectra, label=1.
+
+        '''
+
+        # Get matching pair indices
+        idx1, idx2 = self.neg_pairs[idx, :]
+
+        # Release instance
+        return OrderedDict([('exp_spec', self.exp[idx1]),
+                            ('exp_label', self.exp_labels[idx1]),
+                            ('pred_spec', self.pred[idx2]),
+                            ('pred_label', self.pred_labels[idx2]),
+                            ('label', self.neg_label)])
 
     def __getitem__(self, idx):
-        spec1 = None
-        spec2 = None
-        label = None
+        '''
+        Alternate same, different data.
 
-        if idx % 2 == 0: # select the same label for both images
-            category = np.random.choice(categories)
-            character = np.random.choice(category[1])
-            specDir = root_dir + category[0] + '/' + character
-            spec1Name = np.random.choice(os.listdir(specDir))
-            spec2Name = np.random.choice(os.listdir(specDir))
-            spec1 = np.load(specDir + '/' + spec1Name)
-            spec2 = np.load(specDir + '/' + spec2Name)
-            label = 1.0
+        '''
 
-        else: # select a different character for both images
-            category1, category2 = np.random.choice(categories), np.random.choice(categories)
-            category1, category2 = np.random.choice(categories), np.random.choice(categories)
-            character1, character2 = np.random.choice(category1[1]), np.random.choice(category2[1])
-            specDir1, specDir2 = root_dir + category1[0] + '/' + character1, root_dir + category2[0] + '/' + character2
-            spec1Name = np.random.choice(os.listdir(specDir1))
-            spec2Name = np.random.choice(os.listdir(specDir2))
-            while spec1Name == spec2Name:
-                spec2Name = np.random.choice(os.listdir(specDir2))
-            label = 0.0
-            spec1 = np.load(specDir1 + '/' + spec1Name)
-            spec2 = np.load(specDir2 + '/' + spec2Name)
+        if idx % 2 == 0:
+            return self._get_same(idx // 2)
 
-        if self.transform:
-            spec1 = self.transform(spec1)
-            spec2 = self.transform(spec2)
+        if self.deterministic is True:
+            return self._get_different_deterministic(idx)
 
-        return spec1, spec2, torch.from_numpy(np.array([label], dtype=np.float32))
+        return self._get_different()
