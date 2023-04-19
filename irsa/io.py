@@ -134,10 +134,6 @@ def preprocess_predicted(freq, intensity, exp_freq):
     freq = freq[idx]
     intensity = intensity[idx]
 
-    # Ensure both experimental and predicted points are sampled
-    freq = np.concatenate((freq, exp_freq))
-    intensity = np.concatenate((intensity, np.zeros_like(exp_freq)))
-
     # Ensure monotonic frequencies
     idx = np.argsort(freq)
     freq = freq[idx]
