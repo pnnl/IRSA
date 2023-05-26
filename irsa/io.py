@@ -2,6 +2,7 @@ import pickle
 from collections import OrderedDict
 
 import numpy as np
+import pandas as pd
 import torch
 from irsa.networks import PairedNeuralNet
 from jcamp import JCAMP_reader
@@ -65,8 +66,17 @@ def load_experimental(path):
     # Normalize
     intensity = (intensity - intensity.min()) / \
         (intensity.max() - intensity.min())
+    intensity = intensity / intensity.sum()
 
-    return freq.astype(np.float32), (intensity / intensity.sum()).astype(np.float32)
+    # Data frame
+    df = pd.DataFrame({'frequency': freq, 'intensity': intensity}).sort_values(
+        by='intensity', ascending=False)
+
+    # Drop duplicates
+    df = df.drop_duplicates(subset='frequency').sort_values(
+        by='frequency').reset_index(drop=True)
+
+    return df['frequency'].values, df['intensity'].values
 
 
 def load_predicted(path):
@@ -104,7 +114,7 @@ def load_predicted(path):
     return freq.astype(np.float32), intensity.astype(np.float32)
 
 
-def preprocess_predicted(freq, intensity, exp_freq):
+def preprocess_predicted(freq, intensity, exp_freq, sigma=2):
     """
     Process predicted spectra to broaden, normalize, and map to experimental
     frequencies.
@@ -115,8 +125,10 @@ def preprocess_predicted(freq, intensity, exp_freq):
         Array of predicted frequencies.
     intensity : :obj:`~numpy.array`
         Array of predicted intensities.
-    freq : :obj:`~numpy.array`
+    exp_freq : :obj:`~numpy.array`
         Array of experimental frequencies.
+    sigma : int
+        Sigma value to broaden by Gaussian function.
 
     Returns
     -------
@@ -144,7 +156,7 @@ def preprocess_predicted(freq, intensity, exp_freq):
     intensity = intensity[idx]
 
     # Apply naive broadening function
-    gauss = gaussian_filter1d(intensity, 1)
+    gauss = gaussian_filter1d(intensity, sigma=sigma)
 
     # Fit 1D spline to broadened spectra
     spl = interp1d(freq, gauss, kind='linear',
@@ -273,6 +285,6 @@ class PairedExpPredDataset(Dataset):
             return self._get_same(idx // 2)
 
         if self.deterministic is True:
-            return self._get_different_deterministic(idx)
+            return self._get_different_deterministic(idx // 2)
 
         return self._get_different()
