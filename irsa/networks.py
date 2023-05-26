@@ -27,7 +27,7 @@ class DomainEncoder(nn.Module):
         self.bn4 = nn.BatchNorm1d(64)
 
         # Fully conected output layer
-        self.fc_out = nn.Linear(64 * 51, embedding_dim)
+        self.fc_out = nn.Linear(64 * 46, embedding_dim)
 
     def convs(self, x):
         # Conv - batchnorm - activate - pool - dropout block 1
@@ -65,7 +65,7 @@ class DomainEncoder(nn.Module):
         x = self.convs(x)
 
         # Flatten
-        x = x.view(-1, 64 * 51)
+        x = x.view(-1, 64 * 46)
 
         # Fully connected output
         x = F.relu(self.fc_out(x))
