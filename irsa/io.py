@@ -199,14 +199,14 @@ class PairedExpPredDataset(Dataset):
         bmat = self.exp_labels[:, None] == self.pred_labels
 
         # Indices of nonmatched pairs
-        self.neg_pairs = np.stack(np.where(bmat is False)).T
+        self.neg_pairs = np.stack(np.where(bmat == False)).T
 
         # Shuffle if determinisitic
         if self.deterministic is True:
             np.random.shuffle(self.neg_pairs)
 
         # Indices of matched pairs
-        self.pos_pairs = np.stack(np.where(bmat is True)).T
+        self.pos_pairs = np.stack(np.where(bmat == True)).T
 
         # Labels
         self.pos_label = torch.from_numpy(np.array([1.0], dtype=np.float32))
