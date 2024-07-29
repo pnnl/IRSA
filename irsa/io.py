@@ -4,11 +4,12 @@ from collections import OrderedDict
 import numpy as np
 import pandas as pd
 import torch
-from irsa.networks import PairedNeuralNet
-from jcamp import JCAMP_reader
+from jcamp import jcamp_readfile
 from scipy.interpolate import interp1d
 from scipy.ndimage.filters import gaussian_filter1d
 from torch.utils.data import Dataset
+
+from irsa.networks import PairedNeuralNet
 
 
 def load_model(path, model=PairedNeuralNet, **kwargs):
@@ -55,7 +56,7 @@ def load_experimental(path):
     """
 
     # Load experimental spectra with JCAMP
-    spec = JCAMP_reader(path)
+    spec = jcamp_readfile(path)
 
     # Frequency
     freq = spec['x']
