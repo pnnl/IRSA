@@ -147,17 +147,20 @@ def preprocess_predicted(freq, intensity, exp_freq, sigma=2):
     freq = freq[idx]
     intensity = intensity[idx]
 
+    # Ensure both experimental and predicted points are sampled
+    freq = np.concatenate((freq, exp_freq))
+    intensity = np.concatenate((intensity, np.zeros_like(exp_freq)))
+
     # Ensure monotonic frequencies
     idx = np.argsort(freq)
     freq = freq[idx]
     intensity = intensity[idx]
 
     # Apply naive broadening function
-    gauss = gaussian_filter1d(intensity, sigma=sigma)
+    gauss = gaussian_filter1d(intensity, sigma, mode='constant', cval=0)
 
     # Fit 1D spline to broadened spectra
-    spl = interp1d(freq, gauss, kind='linear',
-                   bounds_error=False, fill_value=0)
+    spl = interp1d(freq, gauss, kind='linear', bounds_error=False, fill_value=0)
 
     # Sample spline at same points as experimental
     y_test = spl(exp_freq)
