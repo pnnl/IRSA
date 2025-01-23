@@ -103,8 +103,8 @@ def load_predicted(path):
         spec = pickle.load(f)
 
     # Check for completion
-    if not hasattr(spec, 'frequency'):
-        raise ValueError('Frequency attribute not detected in input.')
+    if 'frequency' not in spec:
+        raise ValueError('Frequency not detected in input.')
 
     # Frequency
     freq = np.abs(spec.frequency['frequencies'])
