@@ -107,10 +107,10 @@ def load_predicted(path):
         raise ValueError('Frequency not detected in input.')
 
     # Frequency
-    freq = np.abs(spec.frequency['frequencies'])
+    freq = np.abs(spec['frequency']['wavenumber'])
 
     # Intensity
-    intensity = np.abs(spec.frequency['intensity arbitrary'])
+    intensity = np.abs(spec['frequency']['intensity'])
 
     return freq.astype(np.float32), intensity.astype(np.float32)
 
