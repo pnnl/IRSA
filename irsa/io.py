@@ -31,9 +31,12 @@ def load_model(path, model=PairedNeuralNet, **kwargs):
         Initialized model.
 
     """
-
+    map_location = kwargs.pop("map_location", None)
     m = model(**kwargs)
-    m.load_state_dict(torch.load(path))
+    if map_location:
+        m.load_state_dict(torch.load(path, map_location=map_location))
+    else:
+        m.load_state_dict(torch.load(path))
     return m
 
 
@@ -59,25 +62,28 @@ def load_experimental(path):
     spec = jcamp_readfile(path)
 
     # Frequency
-    freq = spec['x']
+    freq = spec["x"]
 
     # Intensity
-    intensity = spec['y']
+    intensity = spec["y"]
 
     # Normalize
-    intensity = (intensity - intensity.min()) / \
-        (intensity.max() - intensity.min())
+    intensity = (intensity - intensity.min()) / (intensity.max() - intensity.min())
     intensity = intensity / intensity.sum()
 
     # Data frame
-    df = pd.DataFrame({'frequency': freq, 'intensity': intensity}).sort_values(
-        by='intensity', ascending=False)
+    df = pd.DataFrame({"frequency": freq, "intensity": intensity}).sort_values(
+        by="intensity", ascending=False
+    )
 
     # Drop duplicates
-    df = df.drop_duplicates(subset='frequency').sort_values(
-        by='frequency').reset_index(drop=True)
+    df = (
+        df.drop_duplicates(subset="frequency")
+        .sort_values(by="frequency")
+        .reset_index(drop=True)
+    )
 
-    return df['frequency'].values, df['intensity'].values
+    return df["frequency"].values, df["intensity"].values
 
 
 def load_predicted(path):
@@ -99,18 +105,18 @@ def load_predicted(path):
     """
 
     # Load predicted spectra
-    with open(path, 'rb') as f:
+    with open(path, "rb") as f:
         spec = pickle.load(f)
 
     # Check for completion
-    if 'frequency' not in spec:
-        raise ValueError('Frequency not detected in input.')
+    if "frequency" not in spec:
+        raise ValueError("Frequency not detected in input.")
 
     # Frequency
-    freq = np.abs(spec['frequency']['wavenumber'])
+    freq = np.abs(spec["frequency"]["wavenumber"])
 
     # Intensity
-    intensity = np.abs(spec['frequency']['intensity'])
+    intensity = np.abs(spec["frequency"]["intensity"])
 
     return freq.astype(np.float32), intensity.astype(np.float32)
 
@@ -157,10 +163,10 @@ def preprocess_predicted(freq, intensity, exp_freq, sigma=2):
     intensity = intensity[idx]
 
     # Apply naive broadening function
-    gauss = gaussian_filter1d(intensity, sigma, mode='constant', cval=0)
+    gauss = gaussian_filter1d(intensity, sigma, mode="constant", cval=0)
 
     # Fit 1D spline to broadened spectra
-    spl = interp1d(freq, gauss, kind='linear', bounds_error=False, fill_value=0)
+    spl = interp1d(freq, gauss, kind="linear", bounds_error=False, fill_value=0)
 
     # Sample spline at same points as experimental
     y_test = spl(exp_freq)
@@ -168,11 +174,12 @@ def preprocess_predicted(freq, intensity, exp_freq, sigma=2):
     # Normalize
     y_test = (y_test - y_test.min()) / (y_test.max() - y_test.min())
 
-    return exp_freq.copy().astype(np.float32), (y_test / y_test.sum()).astype(np.float32)
+    return exp_freq.copy().astype(np.float32), (y_test / y_test.sum()).astype(
+        np.float32
+    )
 
 
 class PairedExpPredDataset(Dataset):
-
     def __init__(self, exp, exp_labels, pred, pred_labels, deterministic=False):
         self.exp = torch.from_numpy(exp.astype(np.float32))
         self.exp_labels = exp_labels
@@ -182,8 +189,7 @@ class PairedExpPredDataset(Dataset):
 
         # Shape magic
         if len(self.exp.shape) != len(self.pred.shape):
-            raise ValueError(
-                'Shape mismatch between predicted and experimental')
+            raise ValueError("Shape mismatch between predicted and experimental")
 
         # (M, ) to (N, M) where N=1
         if len(self.exp.shape) == 1:
@@ -197,7 +203,7 @@ class PairedExpPredDataset(Dataset):
 
         # Check if shape conversion successful
         if len(self.exp.shape) != 3:
-            raise ValueError('Unable to coerce correct shape')
+            raise ValueError("Unable to coerce correct shape")
 
         # Boolean pairwise comparison matrix
         bmat = self.exp_labels[:, None] == self.pred_labels
@@ -217,69 +223,80 @@ class PairedExpPredDataset(Dataset):
         self.neg_label = torch.from_numpy(np.array([0.0], dtype=np.float32))
 
     def __len__(self):
-        '''
+        """
         Length will be twice the number of matching instances, as half will
         be different by design.
 
-        '''
+        """
 
         return 2 * self.pos_pairs.shape[0]
 
     def _get_same(self, idx):
-        '''
+        """
         Return same-labeled spectra, label=1.
 
-        '''
+        """
 
         # Get matching pair indices
         idx1, idx2 = self.pos_pairs[idx, :]
 
         # Release instance
-        return OrderedDict([('exp_spec', self.exp[idx1]),
-                            ('exp_label', self.exp_labels[idx1]),
-                            ('pred_spec', self.pred[idx2]),
-                            ('pred_label', self.pred_labels[idx2]),
-                            ('label', self.pos_label)])
+        return OrderedDict(
+            [
+                ("exp_spec", self.exp[idx1]),
+                ("exp_label", self.exp_labels[idx1]),
+                ("pred_spec", self.pred[idx2]),
+                ("pred_label", self.pred_labels[idx2]),
+                ("label", self.pos_label),
+            ]
+        )
 
     def _get_different(self):
-        '''
+        """
         Return different experimental and predicted data, label=0. As this class
         is larger, indices will be selected randomly.
 
-        '''
+        """
 
         # Get non-matching pair indices
-        idx1, idx2 = self.neg_pairs[np.random.randint(
-            0, len(self.neg_pairs)), :]
+        idx1, idx2 = self.neg_pairs[np.random.randint(0, len(self.neg_pairs)), :]
 
         # Release instance
-        return OrderedDict([('exp_spec', self.exp[idx1]),
-                            ('exp_label', self.exp_labels[idx1]),
-                            ('pred_spec', self.pred[idx2]),
-                            ('pred_label', self.pred_labels[idx2]),
-                            ('label', self.neg_label)])
+        return OrderedDict(
+            [
+                ("exp_spec", self.exp[idx1]),
+                ("exp_label", self.exp_labels[idx1]),
+                ("pred_spec", self.pred[idx2]),
+                ("pred_label", self.pred_labels[idx2]),
+                ("label", self.neg_label),
+            ]
+        )
 
     def _get_different_deterministic(self, idx):
-        '''
+        """
         Return same-labeled spectra, label=1.
 
-        '''
+        """
 
         # Get matching pair indices
         idx1, idx2 = self.neg_pairs[idx, :]
 
         # Release instance
-        return OrderedDict([('exp_spec', self.exp[idx1]),
-                            ('exp_label', self.exp_labels[idx1]),
-                            ('pred_spec', self.pred[idx2]),
-                            ('pred_label', self.pred_labels[idx2]),
-                            ('label', self.neg_label)])
+        return OrderedDict(
+            [
+                ("exp_spec", self.exp[idx1]),
+                ("exp_label", self.exp_labels[idx1]),
+                ("pred_spec", self.pred[idx2]),
+                ("pred_label", self.pred_labels[idx2]),
+                ("label", self.neg_label),
+            ]
+        )
 
     def __getitem__(self, idx):
-        '''
+        """
         Alternate same, different data.
 
-        '''
+        """
 
         if idx % 2 == 0:
             return self._get_same(idx // 2)
