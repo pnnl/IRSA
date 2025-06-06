@@ -180,6 +180,24 @@ def preprocess_predicted(freq, intensity, exp_freq, sigma=2):
 
 
 class PairedExpPredDataset(Dataset):
+    """
+    Create true positive & true negative pairs of experiment and predicted spectra.
+
+    Parameters
+    ----------
+    exp : :obj:`~numpy.array`
+        Array of experiment values.
+    exp_labels : :obj:`~numpy.array`
+        Array of experiment labels.
+    pred : :obj:`~numpy.array`
+        Array of predicted values.
+    pred_labels : :obj:`~numpy.array`
+        Array of predicted labels.
+    deterministic : bool
+        True for `np.random` shuffling only once at initialization.
+        False for `np.random` shuffling each iteration.
+    """
+
     def __init__(self, exp, exp_labels, pred, pred_labels, deterministic=False):
         self.exp = torch.from_numpy(exp.astype(np.float32))
         self.exp_labels = exp_labels
@@ -308,6 +326,22 @@ class PairedExpPredDataset(Dataset):
 
 
 class ExpPredDataset(Dataset):
+    """
+    Create pairs for M experiment spectra and N predicted spectra.
+    (M x N pairs)
+
+    Parameters
+    ----------
+    exp : :obj:`~numpy.array`
+        Array of experiment values.
+    exp_labels : :obj:`~numpy.array`
+        Array of experiment labels.
+    pred : :obj:`~numpy.array`
+        Array of predicted values.
+    pred_labels : :obj:`~numpy.array`
+        Array of predicted labels.
+    """
+
     def __init__(self, exp, exp_labels, pred, pred_labels):
         self.exp = torch.from_numpy(exp.astype(np.float32))
         self.exp_labels = exp_labels
