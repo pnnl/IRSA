@@ -180,6 +180,24 @@ def preprocess_predicted(freq, intensity, exp_freq, sigma=2):
 
 
 class PairedExpPredDataset(Dataset):
+    """
+    Create true positive & true negative pairs of experiment and predicted spectra.
+
+    Parameters
+    ----------
+    exp : :obj:`~numpy.array`
+        Array of experiment values.
+    exp_labels : :obj:`~numpy.array`
+        Array of experiment labels.
+    pred : :obj:`~numpy.array`
+        Array of predicted values.
+    pred_labels : :obj:`~numpy.array`
+        Array of predicted labels.
+    deterministic : bool
+        True for `np.random` shuffling only once at initialization.
+        False for `np.random` shuffling each iteration.
+    """
+
     def __init__(self, exp, exp_labels, pred, pred_labels, deterministic=False):
         self.exp = torch.from_numpy(exp.astype(np.float32))
         self.exp_labels = exp_labels
@@ -305,3 +323,80 @@ class PairedExpPredDataset(Dataset):
             return self._get_different_deterministic(idx // 2)
 
         return self._get_different()
+
+
+class ExpPredDataset(Dataset):
+    """
+    Create pairs for M experiment spectra and N predicted spectra.
+    (M x N pairs)
+
+    Parameters
+    ----------
+    exp : :obj:`~numpy.array`
+        Array of experiment values.
+    exp_labels : :obj:`~numpy.array`
+        Array of experiment labels.
+    pred : :obj:`~numpy.array`
+        Array of predicted values.
+    pred_labels : :obj:`~numpy.array`
+        Array of predicted labels.
+    """
+
+    def __init__(self, exp, exp_labels, pred, pred_labels):
+        self.exp = torch.from_numpy(exp.astype(np.float32))
+        self.exp_labels = exp_labels
+        self.pred = torch.from_numpy(pred.astype(np.float32))
+        self.pred_labels = pred_labels
+
+        # Validate shape compatibility
+        if len(self.exp.shape) == 1:
+            self.exp = torch.unsqueeze(self.exp, 0)
+
+        # Reshaping for multi-instance comparison
+        if len(self.exp.shape) == 2:
+            self.exp = torch.unsqueeze(self.exp, 1)
+
+        if len(self.exp.shape) != 3:
+            raise ValueError("Unable to coerce correct shape for experimental data")
+
+        if self.exp.shape[-1] != self.pred.shape[-1]:
+            raise ValueError(
+                "Feature dimension mismatch between predicted and experimental data"
+            )
+
+    def __len__(self):
+        """
+        Total length is the product of the number of experimental and predicted instances.
+        """
+        return self.exp.shape[0] * self.pred.shape[0]
+
+    def _create_pair(self, exp_idx, pred_idx):
+        """
+        Create data pairing for a single experimental instance paired with a predicted instance.
+        """
+        # Get experimental data and label
+        exp_spec = self.exp[exp_idx]
+        exp_label = self.exp_labels[exp_idx]
+
+        # Get predicted data and label
+        pred_spec = self.pred[pred_idx]
+        pred_label = self.pred_labels[pred_idx]
+
+        # Release paired instance
+        return OrderedDict(
+            [
+                ("exp_spec", exp_spec),
+                ("exp_label", exp_label),
+                ("pred_spec", pred_spec),
+                ("pred_label", pred_label),
+            ]
+        )
+
+    def __getitem__(self, idx):
+        """
+        Retrieve a pairing for multi-instance experimental data with a predicted instance.
+        Use division and modulo operations to access pair indices.
+        """
+        exp_idx = idx // self.pred.shape[0]
+        pred_idx = idx % self.pred.shape[0]
+        return self._create_pair(exp_idx, pred_idx)
