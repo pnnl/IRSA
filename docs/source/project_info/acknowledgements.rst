@@ -19,6 +19,7 @@ Subject Matter Experts
 - Christopher Harrilal
 - Yehia Ibrahim
 - Amy Jystad
+- Simone Raugei
 - Peter Rice
 
 Contributors
