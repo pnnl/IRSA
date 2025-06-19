@@ -18,6 +18,10 @@ extensions = ["sphinx.ext.autodoc", "sphinx.ext.viewcode", "sphinx.ext.napoleon"
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+# docs/conf.py
+
+autodoc_typehints = "description"  # or 'signature'
+autodoc_member_order = "bysource"  # or 'alphabetical'
 
 
 # -- Options for HTML output -------------------------------------------------
