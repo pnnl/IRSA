@@ -12,7 +12,7 @@ Citing IRSA
 If you would like to reference IRSA, we ask you include the following references:
 
 * publication forthcoming
-* IRSA, version 1.0.0 http://github.com/pnnl/irsa (accessed MMM YYYY)
+* IRSA, version 1.0.0 http://github.com/pnnl/irsa (accessed MM YYYY)
 
 Disclaimer
 ----------
