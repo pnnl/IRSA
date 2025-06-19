@@ -24,3 +24,5 @@ dependencies:
   - sphinx >= 3
   - sphinxcontrib-napoleon
   - sphinx_rtd_theme >=1.2.1
+  - pip
+      - jcamp
