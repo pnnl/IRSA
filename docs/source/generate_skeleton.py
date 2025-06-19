@@ -13,7 +13,7 @@ if __name__ == "__main__":
     doc_layout = {
         "getting_started": ["installation"],
         # edit user_guide per package
-        "user_guide": ["loading_saving", "score "],
+        # "user_guide": ["loading_saving", "score "],
         "api_reference": [package.__name__] + modules,
         "project_info": [
             "faq",
@@ -32,8 +32,8 @@ if __name__ == "__main__":
         "user_guide": "User guide",
         "installation": "Installation",
         # "tutorial": "Tutorial",
-        "loading_saving": "Loading/saving",
-        "score": "Scoring",
+        # "loading_saving": "Loading/saving",
+        # "score": "Scoring",
         "citing_and_citations": "Citing and citations",
         "faq": "Frequently asked questions",
         "contributing": "Contributing",
